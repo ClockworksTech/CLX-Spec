@@ -1,6 +1,6 @@
 # CLX
 
-# 🎛️ MessagePack Packet Format: DJ Deck State Sync
+# MessagePack Packet Format: DJ Deck State Sync
 
 This document describes the structure of serialized packets used for syncing real-time DJ playback data between clients and servers. All packets are sent over the network as:
 
@@ -10,7 +10,7 @@ This document describes the structure of serialized packets used for syncing rea
 
 ---
 
-## 📄 MessagePack Schema Notes
+## MessagePack Schema Notes
 
 Due to hardware memory limitations, MessagePack payloads are assumed to have a schema-less encoding  scheme.  The first and only top-level object is a map of Key-Value pairs, similar to a JSON object.  This is how libraries like `MPack`, `msgpack11`, and `msgpack23` serialize data by default.
 
@@ -22,19 +22,20 @@ The data is exposed as udp unicast, broadcast, or multicast over port `3650`. If
 
 ---
 
-## 📦 Packet Type Headers
+## Packet Type Headers
 
 | Byte Value | Packet Type | Description                                  |
 |------------|-------------|----------------------------------------------|
 | `0x01`     | Deck        | Real-time deck data (sent up to 60fps)       |
 | `0x02`     | Meta        | Track metadata (sent on load or event)       |
 | `0x00`     | Control     | Mixer and control state                      |
-| `0x03`     | Waveform    | Waveform Request                              |
+| `0x03`     | Waveform    | Waveform request (2-byte micro-packet)       |
 | `0x04`     | Event       | Event trigger (e.g., load, cue, play toggle) |
+| `0x05`     | Binary      | Fragmented binary data (waveform, beatgrid)  |
 
 ---
 
-## 🎚️ Deck Packet (`0x01`)
+## Deck Packet (`0x01`)
 
 Represents the real-time state of a single playback deck.
 
@@ -54,7 +55,7 @@ Represents the real-time state of a single playback deck.
 
 ---
 
-## 📝 Metadata Packet (`0x02`)
+## Metadata Packet (`0x02`)
 
 Track metadata, typically sent once on load or when requested. All strings UTF-8 encoded.
 
@@ -68,7 +69,7 @@ Track metadata, typically sent once on load or when requested. All strings UTF-8
 
 ---
 
-## 🎛️ Control Packet (`0x00`)
+## Control Packet (`0x00`)
 
 Represents mixer fader states and app state.
 
@@ -84,7 +85,7 @@ Represents mixer fader states and app state.
 
 ---
 
-## 🎯 Event Packet (`0x04`)
+## Event Packet (`0x04`)
 
 Signals a client-initiated action or state change.
 
@@ -97,31 +98,62 @@ Signals a client-initiated action or state change.
 
 ## Binary Data (`0x05`)
 
-A binary packet containing arbitrary data. The below fields describe an example used for waveform V2 data. Additonal fields are optional depending on how the data needs to be used. It is recommended to include an order value as well as the expected total size.
+A binary packet containing arbitrary data. Payloads larger than a single UDP datagram are split into fragments; each fragment is one `0x05` packet carrying the same envelope fields below, and the receiver reassembles them by `Order`. The `Type` field discriminates the payload (e.g. `waveform`, `beatgrid`). Additional fields are optional depending on how the data needs to be used. It is recommended to include an order value as well as the expected total size.
 
-| Key     | Type     | Description                    |
-|---------|----------|--------------------------------|
-| `Type`  | `string` | Type of data e.g waveform      |
-| `Hash`  | `bytes`  | sha256 hash of entire dataset  |
-| `Total` | `uint64` | Total size of payload          |
-| `Order` | `uint32` | Packet Order                   |
-| `Data`  | `binary` | Binary Data                    |
+| Key            | Type     | Description                                              |
+|----------------|----------|---------------------------------------------------------|
+| `Type`         | `str`    | Payload discriminator, e.g. `waveform` or `beatgrid`    |
+| `Hash`         | `bin`    | 32-byte payload identifier (ASCII-hex track hash)       |
+| `Total`        | `uint64` | Total size of the reassembled payload in bytes          |
+| `Order`        | `uint32` | Fragment order index (0-based)                          |
+| `TotalPackets` | `uint32` | Total number of fragments (optional; 0/absent on older senders — receiver then completes on the byte `Total`) |
+| `Data`         | `bin`    | Fragment binary data                                    |
 
 We follow the conventions from the BBC, with one alteration, appended to the bottom is a CLRS section in binary containing the rgb color values for each pair of values. This is represented as clrs in the json format.
 https://github.com/bbc/audiowaveform/blob/master/doc/DataFormat.md
 
-Waveform data comes in as binary data in fragements. The re-assembled data is a messsagepack blob as below. These should be saved as rwf files in a local cache.
-| Key     | Type     | Description                    |
-|---------|----------|--------------------------------|
-| `Data`  | `string` | The binary of the waveform data|
-| `Hash`  | `bytes`  | md5 sum of track title, waveform file name  |
+### Waveform Payload (`Type = "waveform"`)
+
+Waveform data comes in as binary data in fragments. The re-assembled data is a messagepack blob as below. These should be saved as `rwf` files in a local cache.
+
+| Key       | Type     | Description                                                        |
+|-----------|----------|-------------------------------------------------------------------|
+| `Data`    | `bin`    | The binary of the waveform data                                   |
+| `Hash`    | `bin`    | md5 sum of track title, waveform file name                        |
+| `Replace` | `bool`   | Optional; if true the receiver overwrites an existing cached waveform for this hash (older senders omit it, defaulting to false) |
+
+### Beatgrid Payload (`Type = "beatgrid"`)
+
+Beatgrid data is delivered over the same `0x05` transport with `Type = "beatgrid"`, fragmented and reassembled exactly like the waveform payload. The re-assembled messagepack blob is as below and should be saved as `bg` files in a local cache.
+
+| Key       | Type     | Description                                    |
+|-----------|----------|------------------------------------------------|
+| `Hash`    | `bin`    | 32-byte ASCII-hex track hash                   |
+| `Total`   | `uint32` | Total number of beats in the grid              |
+| `Markers` | `array`  | Array of beatgrid marker maps (see below)      |
+
+Each entry in `Markers` is a map:
+
+| Key           | Type     | Description                                                   |
+|---------------|----------|--------------------------------------------------------------|
+| `Bpm`         | `float32`| Tempo in effect from this marker                             |
+| `Position`    | `float32`| Marker position in seconds from the start of the track      |
+| `Terminal`    | `bool`   | True for the start/end markers that bracket the grid        |
+| `BeatsToNext` | `uint32` | Number of beats from this marker to the next                |
 
 
 ## Waveform Request (`0x03`)
-This is a special form of micro-packet that is used for clients that support retransmission of waveform. This is simply two bytes, the `header` and the deck stored as a uint8. This will trigger transmission of the current loaded waveform on the source. CLX Senders can receive this on port 7000 specifically.
+
+This is a special form of micro-packet used by clients that support retransmission of a waveform. The payload is exactly two bytes:
+
+```
+[0x03 Header][Deck (uint8)]
+```
+
+Receiving a request triggers transmission of the currently loaded waveform for that deck on the source. Unlike the state-sync packets on port `3650`, CLX Senders listen for waveform requests on port `7000` specifically.
 
 
-## 🧠 Behavioral Notes
+## Behavioral Notes
 
 - Clients **broadcast a magic packet** upon joining to request full metadata resync (`Meta`, `Control`) `0x09`.
 - `Deck` packets are streamed continuously and may be throttled to 60fps for performance.

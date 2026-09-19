@@ -31,7 +31,7 @@ The data is exposed as udp unicast, broadcast, or multicast over port `3650`. If
 | `0x00`     | Control     | Mixer and control state                      |
 | `0x03`     | Waveform    | Waveform request (2-byte micro-packet)       |
 | `0x04`     | Event       | Event trigger (e.g., load, cue, play toggle) |
-| `0x05`     | Binary      | Fragmented binary data (waveform, beatgrid)  |
+| `0x05`     | Binary      | Fragmented binary data (waveform, beatgrid, cues) |
 
 ---
 
@@ -98,11 +98,11 @@ Signals a client-initiated action or state change.
 
 ## Binary Data (`0x05`)
 
-A binary packet containing arbitrary data. Payloads larger than a single UDP datagram are split into fragments; each fragment is one `0x05` packet carrying the same envelope fields below, and the receiver reassembles them by `Order`. The `Type` field discriminates the payload (e.g. `waveform`, `beatgrid`). Additional fields are optional depending on how the data needs to be used. It is recommended to include an order value as well as the expected total size.
+A binary packet containing arbitrary data. Payloads larger than a single UDP datagram are split into fragments; each fragment is one `0x05` packet carrying the same envelope fields below, and the receiver reassembles them by `Order`. The `Type` field discriminates the payload (`waveform`, `beatgrid`, `cues`). Additional fields are optional depending on how the data needs to be used. It is recommended to include an order value as well as the expected total size.
 
 | Key            | Type     | Description                                              |
 |----------------|----------|---------------------------------------------------------|
-| `Type`         | `str`    | Payload discriminator, e.g. `waveform` or `beatgrid`    |
+| `Type`         | `str`    | Payload discriminator: `waveform`, `beatgrid` or `cues` |
 | `Hash`         | `bin`    | 32-byte payload identifier (ASCII-hex track hash)       |
 | `Total`        | `uint64` | Total size of the reassembled payload in bytes          |
 | `Order`        | `uint32` | Fragment order index (0-based)                          |
@@ -140,6 +140,34 @@ Each entry in `Markers` is a map:
 | `Position`    | `float32`| Marker position in seconds from the start of the track      |
 | `Terminal`    | `bool`   | True for the start/end markers that bracket the grid        |
 | `BeatsToNext` | `uint32` | Number of beats from this marker to the next                |
+
+### Cues Payload (`Type = "cues"`)
+
+The hot cues and memory cues the DJ software holds for a track, delivered over
+the same `0x05` transport with `Type = "cues"`, fragmented and reassembled
+exactly like the waveform and beatgrid payloads. Keyed by the same track hash
+so a receiver can attach all three to one track. The re-assembled messagepack
+blob is as below and may be saved as `cues` files in a local cache.
+
+| Key    | Type    | Description                                   |
+|--------|---------|-----------------------------------------------|
+| `Hash` | `bin`   | 32-byte ASCII-hex track hash (md5 of title)   |
+| `Cues` | `array` | Array of cue maps (see below), any order      |
+
+Each entry in `Cues` is a map:
+
+| Key      | Type      | Description                                                        |
+|----------|-----------|--------------------------------------------------------------------|
+| `Time`   | `float32` | Cue position in seconds from the start of the track                |
+| `Name`   | `str`     | Cue label; an empty string when the cue is unnamed (always present, never nil) |
+| `Hotcue` | `bool`    | `true` for a hot cue (pad), `false` for a memory cue               |
+
+The sender transmits the full list for a track whenever it has one (typically
+right after the track's waveform and beatgrid), and re-sends the full list if it
+changes; a receiver replaces whatever it held for that hash rather than merging.
+These are the DJ software's own cues, not the receiver's: a viewer displays them
+(e.g. as markers on the waveform) and must not treat them as its own cue list.
+
 
 
 ## Waveform Request (`0x03`)

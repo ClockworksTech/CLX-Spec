@@ -52,6 +52,7 @@ Represents the real-time state of a single playback deck.
 | `EQHigh`            | `float32`| High EQ gain level                     |
 | `Deck`              | `uint8`  | Deck index (e.g., 0 = A, 1 = B)        |
 | `Beat`              | `uint8`  | Current Beat (1-4) all other values should be ignored |
+| `Ord`               | `uint8`  | Packet sequence number: incremented by the sender on every Deck packet, wrapping at 255. Lets a receiver detect dropped or reordered packets in the UDP stream. Optional — treat a missing key as 0. |
 
 ---
 
@@ -87,12 +88,38 @@ Represents mixer fader states and app state.
 
 ## Event Packet (`0x04`)
 
-Signals a client-initiated action or state change.
+Signals a deck state change or a client-initiated action.
 
-| Key     | Type     | Description                              |
-|---------|----------|------------------------------------------|
-| `Event` | `string` | Event name (e.g., "Load", "Cue", "Play") |
-| `Value` | `uint8`  | Optional numeric value for the event     |
+| Key      | Type     | Description                                                   |
+|----------|----------|---------------------------------------------------------------|
+| `Event`  | `string` | Event name (e.g., `loop_enter`, `loop_exit`, `Load`, `Cue`)   |
+| `Deck`   | `uint8`  | Deck number (1-4); `0` when the event is not deck-specific    |
+| `Values` | `array`  | Event arguments; contents depend on `Event` (see below)       |
+
+`Values` is a heterogeneous array whose meaning is defined per event name. A
+receiver that does not recognise an `Event` should ignore the packet rather than
+guess at `Values`.
+
+### `loop_enter` / `loop_exit`
+
+`loop_enter` reports that `Deck` entered (or resized) a loop; `loop_exit` reports
+that it left one. Both are emitted on change only, never continuously.
+
+`loop_exit` carries an empty `Values`.
+
+`loop_enter` carries whatever the source can report:
+
+| Index | Type      | Description                                       |
+|-------|-----------|---------------------------------------------------|
+| 0     | `float32` | Loop in, in seconds from the start of the track   |
+| 1     | `float32` | Loop out, in seconds from the start of the track  |
+
+Not every source can supply loop boundaries, so receivers must check the array
+length before indexing:
+
+- **Serato** reports in/out positions, so both values are present.
+- **Traktor** exposes no loop in/out in its property tree. It sends a single
+  value — the loop length in **beats**, not a position.
 
 ---
 
@@ -169,7 +196,6 @@ These are the DJ software's own cues, not the receiver's: a viewer displays them
 (e.g. as markers on the waveform) and must not treat them as its own cue list.
 
 
-
 ## Waveform Request (`0x03`)
 
 This is a special form of micro-packet used by clients that support retransmission of a waveform. The payload is exactly two bytes:
@@ -185,7 +211,10 @@ Receiving a request triggers transmission of the currently loaded waveform for t
 
 - Clients **broadcast a magic packet** upon joining to request full metadata resync (`Meta`, `Control`) `0x09`.
 - `Deck` packets are streamed continuously and may be throttled to 60fps for performance.
-- `Event` packets are **commands**, not state — the actions they define are user definable.
+- `Event` packets carry both user-definable **commands** (from MIDI controllers and
+  similar, sent with `Deck = 0`) and **deck state changes** such as `loop_enter`.
+  Consumers that act on commands should match on the `Event` names they know
+  rather than treating every Event packet as an action to fire.
 - Servers are expected to track and respond based on `Deck`, `Meta`, and `Control` states.
 - If you are a spectator it is highly recommended to implement both unicast and multicast listen. Multicast happens on address `239.0.0.1`
 

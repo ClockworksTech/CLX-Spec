@@ -97,7 +97,7 @@ Signals a deck state change or a client-initiated action.
 | `Values` | `array`  | Event arguments; contents depend on `Event` (see below)       |
 
 `Values` is a heterogeneous array whose meaning is defined per event name. A
-receiver that does not recognise an `Event` should ignore the packet rather than
+receiver that does not recognize an `Event` should ignore the packet rather than
 guess at `Values`.
 
 ### `loop_enter` / `loop_exit`

@@ -26,7 +26,7 @@ The data is exposed as udp unicast, broadcast, or multicast over port `3650`. If
 
 | Byte Value | Packet Type | Description                                  |
 |------------|-------------|----------------------------------------------|
-| `0x01`     | Deck        | Real-time deck data (sent up to 60fps)       |
+| `0x01`     | Deck        | Real-time deck data (sent at minimum 60Hz)   |
 | `0x02`     | Meta        | Track metadata (sent on load or event)       |
 | `0x00`     | Control     | Mixer and control state                      |
 | `0x03`     | Waveform    | Waveform request (2-byte micro-packet)       |

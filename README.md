@@ -125,11 +125,11 @@ length before indexing:
 
 ## Binary Data (`0x05`)
 
-A binary packet containing arbitrary data. Payloads larger than a single UDP datagram are split into fragments; each fragment is one `0x05` packet carrying the same envelope fields below, and the receiver reassembles them by `Order`. The `Type` field discriminates the payload (`waveform`, `beatgrid`, `cues`). Additional fields are optional depending on how the data needs to be used. It is recommended to include an order value as well as the expected total size.
+A binary packet containing arbitrary data. Payloads larger than a single UDP datagram are split into fragments; each fragment is one `0x05` packet carrying the same envelope fields below, and the receiver reassembles them by `Order`. The `Type` field discriminates the payload (`waveform`, `beatgrid`, `cues`, `leader`). Additional fields are optional depending on how the data needs to be used. It is recommended to include an order value as well as the expected total size.
 
 | Key            | Type     | Description                                              |
 |----------------|----------|---------------------------------------------------------|
-| `Type`         | `str`    | Payload discriminator: `waveform`, `beatgrid` or `cues` |
+| `Type`         | `str`    | Payload discriminator: `waveform`, `beatgrid`, `cues` or `leader` |
 | `Hash`         | `bin`    | 32-byte payload identifier (ASCII-hex track hash)       |
 | `Total`        | `uint64` | Total size of the reassembled payload in bytes          |
 | `Order`        | `uint32` | Fragment order index (0-based)                          |
@@ -195,6 +195,61 @@ changes; a receiver replaces whatever it held for that hash rather than merging.
 These are the DJ software's own cues, not the receiver's: a viewer displays them
 (e.g. as markers on the waveform) and must not treat them as its own cue list.
 
+### Leader Payload (`Type = "leader"`) — optional
+
+An optional integration for setups where one instance is the show's clock
+leader and others follow it: the leader announces which deck is live, where
+that deck is, and which project is loaded, so a follower can align to it
+without deriving any of that from the per-deck stream.
+
+Unlike the other `0x05` payloads this is small, unfragmented (`Total` is the
+payload size, `Order` 0, `TotalPackets` 1) and repeated rather than sent once
+per track — treat every packet as the current truth and keep only the latest.
+`Hash` is unused and sent as 32 zero bytes.
+
+Both ends may ignore it entirely: a sender that has no notion of a leader
+simply never emits it, and a receiver that doesn't follow one ignores
+`Type = "leader"` like any other unknown payload.
+
+| Key        | Type     | Description                                                             |
+|------------|----------|-------------------------------------------------------------------------|
+| `LiveDeck` | `uint8`  | Deck that is live on the leader (1-4); `0` when nothing is live         |
+| `Position` | `float64`| That deck's position, in seconds from the start of the track            |
+| `Project`  | `str`    | Name of the project loaded on the leader; empty when unnamed            |
+| `Tx`       | `uint64` | Optional. Egress timestamp — nanoseconds since the Unix epoch (UTC), sampled as late as possible before the packet is handed to the socket |
+
+#### `Tx` — egress timestamp
+
+`Position` is only as good as the receiver's knowledge of how old it is. `Tx`
+lets a follower age it: with a clock source common to both machines (PTP, or
+NTP where its accuracy is enough), `now - Tx` is the one-way delay, and the
+leader's current position is `Position + (now - Tx)` while the deck is
+playing.
+
+Deliberately different from the `ts23` timestamps used elsewhere in the
+Clockworks stack: those are 8 µs ticks that wrap every ~67 s and are only
+meaningful against a negotiated TimeSync offset. The leader packet is
+fire-and-forget multicast with no handshake, so it carries an absolute,
+non-wrapping value instead.
+
+Rules for senders and receivers:
+
+- **Sample late.** Take the timestamp immediately before the send call, after
+  serialisation — a value captured when the frame was produced measures the
+  sender's own scheduling, not the network.
+- **It is a software timestamp** taken in the sending process, not a NIC
+  hardware timestamp; it does not account for time spent in the local network
+  stack or the driver queue.
+- **Unsynchronised clocks.** With no common time source, `now - Tx` is
+  meaningless in absolute terms, but differences between successive packets
+  are still useful for jitter and ordering. A receiver should treat an
+  implausible delay (negative, or larger than a second or so) as "clocks not
+  synchronised" and fall back to using `Position` as-is rather than applying
+  a nonsense correction.
+- **Optional on the wire.** Senders that predate this field omit it; receivers
+  must treat a missing `Tx` as "unknown age", not as zero.
+
+---
 
 ## Waveform Request (`0x03`)
 
@@ -217,5 +272,8 @@ Receiving a request triggers transmission of the currently loaded waveform for t
   rather than treating every Event packet as an action to fire.
 - Servers are expected to track and respond based on `Deck`, `Meta`, and `Control` states.
 - If you are a spectator it is highly recommended to implement both unicast and multicast listen. Multicast happens on address `239.0.0.1`
+- The `leader` payload is an **optional integration**: nothing else in the
+  protocol depends on it, and an implementation may send it, follow it, or
+  ignore it entirely.
 
 ---

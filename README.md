@@ -26,7 +26,7 @@ The data is exposed as udp unicast, broadcast, or multicast over port `3650`. If
 
 | Byte Value | Packet Type | Description                                  |
 |------------|-------------|----------------------------------------------|
-| `0x01`     | Deck        | Real-time deck data (sent up to 60fps)       |
+| `0x01`     | Deck        | Real-time deck data (sent at minimum 60Hz)   |
 | `0x02`     | Meta        | Track metadata (sent on load or event)       |
 | `0x00`     | Control     | Mixer and control state                      |
 | `0x03`     | Waveform    | Waveform request (2-byte micro-packet)       |
@@ -97,7 +97,7 @@ Signals a deck state change or a client-initiated action.
 | `Values` | `array`  | Event arguments; contents depend on `Event` (see below)       |
 
 `Values` is a heterogeneous array whose meaning is defined per event name. A
-receiver that does not recognise an `Event` should ignore the packet rather than
+receiver that does not recognize an `Event` should ignore the packet rather than
 guess at `Values`.
 
 ### `loop_enter` / `loop_exit`

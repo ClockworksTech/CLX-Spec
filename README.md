@@ -214,7 +214,7 @@ simply never emits it, and a receiver that doesn't follow one ignores
 | Key        | Type     | Description                                                             |
 |------------|----------|-------------------------------------------------------------------------|
 | `LiveDeck` | `uint8`  | Deck that is live on the leader (1-4); `0` when nothing is live         |
-| `Position` | `float64`| That deck's position, in seconds from the start of the track            |
+| `Position` | `float64`| That main clock position, in seconds from 0. This is where a timecode would be carried           |
 | `Project`  | `str`    | Name of the project loaded on the leader; empty when unnamed            |
 | `Tx`       | `uint64` | Optional. Egress timestamp — nanoseconds since the Unix epoch (UTC), sampled as late as possible before the packet is handed to the socket |
 

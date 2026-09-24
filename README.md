@@ -80,6 +80,8 @@ Represents mixer fader states and app state.
 | `UpfaderB`  | `float64`  | Fader level for Deck B                   |
 | `UpfaderC`  | `float64`  | Fader level for Deck C                   |
 | `UpfaderD`  | `float64`  | Fader level for Deck D                   |
+| `UpfaderE`  | `float64`  | Optional. Fader level for Deck E (six-channel mixers); treat a missing key as 0 |
+| `UpfaderF`  | `float64`  | Optional. Fader level for Deck F (six-channel mixers); treat a missing key as 0 |
 | `Crossfader`| `float64`  | Crossfader position (typically 0 to 1)   |
 | `Active`    | `uint8`    | Active deck or focus status              |
 | `AppState`  | `string`   | App connection or session state          |
@@ -93,7 +95,7 @@ Signals a deck state change or a client-initiated action.
 | Key      | Type     | Description                                                   |
 |----------|----------|---------------------------------------------------------------|
 | `Event`  | `string` | Event name (e.g., `loop_enter`, `loop_exit`, `Load`, `Cue`)   |
-| `Deck`   | `uint8`  | Deck number (1-4); `0` when the event is not deck-specific    |
+| `Deck`   | `uint8`  | Deck number (1-6); `0` when the event is not deck-specific    |
 | `Values` | `array`  | Event arguments; contents depend on `Event` (see below)       |
 
 `Values` is a heterogeneous array whose meaning is defined per event name. A
@@ -213,7 +215,7 @@ simply never emits it, and a receiver that doesn't follow one ignores
 
 | Key        | Type     | Description                                                             |
 |------------|----------|-------------------------------------------------------------------------|
-| `LiveDeck` | `uint8`  | Deck that is live on the leader (1-4); `0` when nothing is live         |
+| `LiveDeck` | `uint8`  | Deck that is live on the leader (1-6); `0` when nothing is live         |
 | `Position` | `float64`| That main clock position, in seconds from 0. This is where a timecode would be carried           |
 | `Project`  | `str`    | Name of the project loaded on the leader; empty when unnamed            |
 | `Tx`       | `uint64` | Optional. Egress timestamp — nanoseconds since the Unix epoch (UTC), sampled as late as possible before the packet is handed to the socket |
